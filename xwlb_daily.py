@@ -63,7 +63,7 @@ def strip_html(text: str) -> str:
 
 
 def fetch_feed_items() -> dict[str, list[dict]]:
-    """抓取各 RSS 源近两天的新条目，返回 {类别: [{title, summary}]}。"""
+    """抓取各 RSS 源近两天的新条目，返回 {类别: [{title, summary, link}]}。"""
     result = {}
     now = datetime.now(timezone.utc)
     for cat, url in FEEDS.items():
@@ -80,7 +80,8 @@ def fetch_feed_items() -> dict[str, list[dict]]:
                     if now - dt > timedelta(hours=FEED_FRESH_HOURS):
                         continue
                 summary = strip_html(e.get("summary") or "")[:200]
-                items.append({"title": title, "summary": summary})
+                items.append({"title": title, "summary": summary,
+                              "link": (e.get("link") or "").strip()})
                 if len(items) >= ITEMS_PER_FEED:
                     break
             if items:
@@ -141,28 +142,34 @@ def summarize_feeds(date_str: str, items_by_cat: dict[str, list[dict]]) -> str |
             line = f"{i}. {it['title']}"
             if it["summary"]:
                 line += f" —— {it['summary']}"
+            if it["link"]:
+                line += f"（链接: {it['link']}）"
             raw.append(line)
     prompt = (
         f"以下是{date_str}从多个科技、财经媒体抓取的新闻标题和摘要（含英文源）。\n"
         "请整理成中文简报，要求：\n"
         "1. 按原类别分板块；\n"
-        "2. 每个类别挑选 3~5 条最重要、最有信息量的，每条一行："
-        "中文标题概括 + 一句要点或影响点评；\n"
-        "3. 英文新闻翻译成中文，保留关键公司名、人名和数据；\n"
-        "4. 末尾加一段「今日主线」：用两三句话点出跨板块的趋势或关联，要有判断；\n"
-        "5. 总长度 500 字以内，输出 Markdown，不要额外解释。\n\n"
+        "2. 每个类别挑选 3~5 条最重要、最有信息量的，每条一行，格式为：\n"
+        "   - [中文标题概括](该条的原始链接) —— 一句要点或影响点评；\n"
+        "3. 链接必须使用我在输入中给出的原始链接，原样复制，不要编造、不要修改；\n"
+        "4. 英文新闻标题翻译成中文，保留关键公司名、人名和数据；\n"
+        "5. 末尾加一段「今日主线」：用两三句话点出跨板块的趋势或关联，要有判断；\n"
+        "6. 总长度 500 字以内，输出 Markdown，不要额外解释。\n\n"
         + "\n".join(raw)
     )
     return call_llm(prompt)
 
 
 def feeds_fallback(items_by_cat: dict[str, list[dict]]) -> str:
-    """LLM 不可用时的兜底：直接列出各源标题。"""
+    """LLM 不可用时的兜底：直接列出各源标题（带链接）。"""
     lines = []
     for cat, items in items_by_cat.items():
         lines.append(f"**{cat}**")
         for it in items[:5]:
-            lines.append(f"- {it['title']}")
+            if it["link"]:
+                lines.append(f"- [{it['title']}]({it['link']})")
+            else:
+                lines.append(f"- {it['title']}")
     return "\n".join(lines)
 
 
